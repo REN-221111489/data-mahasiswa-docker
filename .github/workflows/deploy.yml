@@ -2,13 +2,14 @@ name: Deploy to Kubernetes
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'Dockerfile'
       - 'app/**'
       - 'config/**'
       - 'routes/**'
       - '.github/workflows/deploy.yml'
+      - 'k8s/**'
 
 jobs:
   build-and-push:
@@ -16,32 +17,32 @@ jobs:
     if: github.event_name == 'push'
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: true
-        tags: |
-          ${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:latest
-          ${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:latest
+            ${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-    - name: Verify pushed image
-      run: |
-        echo "Image pushed successfully: ${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:latest"
+      - name: Verify pushed image
+        run: |
+          echo "Image pushed successfully: ${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:${{ github.sha }}"
 
   deploy:
     runs-on: ubuntu-latest
@@ -49,26 +50,58 @@ jobs:
     if: github.event_name == 'push'
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
 
-    - name: Configure kubeconfig (for Minikube)
-      run: |
-        mkdir -p $HOME/.kube
-        echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $HOME/.kube/config
-        kubectl cluster-info
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          # Jika KUBE_CONFIG sudah base64 encoded di secret
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $HOME/.kube/config
+          
+          # Set permissions
+          chmod 600 $HOME/.kube/config
+          
+          # Verify cluster access
+          kubectl cluster-info
+          kubectl get nodes
 
-    - name: Deploy to Kubernetes
-      run: |
-        # Update image in deployment
-        kubectl set image deployment/laravel laravel=${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:latest -n data-mahasiswa
-        
-        # Wait for rollout to complete
-        kubectl rollout status deployment/laravel -n data-mahasiswa --timeout=300s
-        
-        # Verify deployment
-        kubectl get pods -n data-mahasiswa
-        echo "Deployment successful!"
+      - name: Update deployment manifest
+        run: |
+          # Update image tag in k8s deployment manifest
+          sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/data-mahasiswa-laravel:${{ github.sha }}|g" k8s/deployment.yaml
+          
+          # Optional: View updated manifest
+          echo "Updated deployment manifest:"
+          cat k8s/deployment.yaml | grep -A2 "image:"
+
+      - name: Deploy to Kubernetes
+        run: |
+          # Apply the deployment
+          kubectl apply -f k8s/deployment.yaml
+          
+          # Wait for rollout to complete
+          kubectl rollout status deployment/laravel-deployment -n data-mahasiswa --timeout=300s
+          
+          # Verify deployment
+          echo "Deployment status:"
+          kubectl get deployment/laravel-deployment -n data-mahasiswa -o wide
+          echo ""
+          echo "Pod status:"
+          kubectl get pods -n data-mahasiswa -l app=laravel
+          
+          # Check service if exists
+          echo ""
+          echo "Service status:"
+          kubectl get svc -n data-mahasiswa || true
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deployment failed! Rolling back..."
+          kubectl rollout undo deployment/laravel-deployment -n data-mahasiswa
+          kubectl rollout status deployment/laravel-deployment -n data-mahasiswa --timeout=300s
+          echo "Rollback completed"
