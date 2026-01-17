@@ -59,13 +59,10 @@ jobs:
       - name: Configure kubeconfig
         run: |
           mkdir -p $HOME/.kube
-          # Jika KUBE_CONFIG sudah base64 encoded di secret
           echo "${{ secrets.KUBE_CONFIG }}" | base64 --decode > $HOME/.kube/config
-          
-          # Set permissions
           chmod 600 $HOME/.kube/config
           
-          # Verify cluster access
+          # Test cluster connection
           kubectl cluster-info
           kubectl get nodes
 
@@ -80,22 +77,22 @@ jobs:
 
       - name: Deploy to Kubernetes
         run: |
-          # Apply the deployment
-          kubectl apply -f k8s/deployment.yaml
+          # Apply all k8s manifests
+          kubectl apply -f k8s/
           
           # Wait for rollout to complete
           kubectl rollout status deployment/laravel-deployment -n data-mahasiswa --timeout=300s
           
           # Verify deployment
-          echo "Deployment status:"
+          echo "=== Deployment Status ==="
           kubectl get deployment/laravel-deployment -n data-mahasiswa -o wide
           echo ""
-          echo "Pod status:"
+          echo "=== Pod Status ==="
           kubectl get pods -n data-mahasiswa -l app=laravel
           
           # Check service if exists
           echo ""
-          echo "Service status:"
+          echo "=== Service Status ==="
           kubectl get svc -n data-mahasiswa || true
 
       - name: Rollback on failure
