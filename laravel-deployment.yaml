@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: laravel
+  namespace: data-mahasiswa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: laravel
+  template:
+    metadata:
+      labels:
+        app: laravel
+    spec:
+      containers:
+        - name: laravel
+          image: 221111489/data-mahasiswa-laravel:latest
+          imagePullPolicy: Always
+          workingDir: /app
+
+          command: ["php"]
+          args:
+            - artisan
+            - serve
+            - --host=0.0.0.0
+            - --port=8000
+
+          ports:
+            - containerPort: 8000
+
+          env:
+            - name: APP_ENV
+              value: production
+            - name: APP_DEBUG
+              value: "false"
+            - name: APP_KEY
+              value: base64:IdNZwwK1+b9FJJGXUxFAGSzKaQ9rCryxWCRpbIeO2Ow=
+            - name: DB_HOST
+              value: mysql
+            - name: DB_DATABASE
+              value: data_mahasiswa
+            - name: DB_USERNAME
+              value: laravel
+            - name: DB_PASSWORD
+              value: laravelpassword
